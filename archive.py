@@ -9,6 +9,12 @@ import gzip
 import hashlib
 
 def get_files(monitor_directory, days_back):
+    '''
+    Returns all files in the provided directory and subdirectories.
+    :param monitor_directory: directory to monitor
+    :param days_back: number of days back to filter on (must be older than this number of days to be included)
+    :return: list of files matching age requirement
+    '''
     glob_pattern = os.path.join(monitor_directory, '**/*')
     sub_dir_files = glob.glob(glob_pattern)
     glob_pattern = os.path.join(monitor_directory, '*')
@@ -25,23 +31,22 @@ def get_files(monitor_directory, days_back):
     return files_to_archive
 
 def file_older_than(filename, days_back):
+    '''
+    Given a file name, returns True or False if it was created more than the provided days_back
+    :param filename: path to file
+    :param days_back: number of days to check
+    :return: True or False
+    '''
     now = time.time()
     # 86400 is seconds in a day
     return os.stat(filename).st_mtime < now - days_back * 86400
 
-
-def zip_encrypt_file(existing_filepath, zip_encrypted_filepath):
-    '''
-
-    :param existing_filepath:
-    :param zip_encrypted_filepath:
-    :return:
-    '''
-    with pyzipper.AESZipFile(existing_filepath, 'w', compression=pyzipper.ZIP_LZMA, encryption=pyzipper.WZ_AES) as zf:
-        zf.pwd = b'infected'
-        zf.writestr(zip_encrypted_filepath, "What ever you do, don't tell anyone!")
-
 def get_sha1(file_content):
+    '''
+    Computes the sha1 digest of the provided file content
+    :param file_content: byte array of file content
+    :return: sha1 digest as a string
+    '''
     sha1_hasher = hashlib.sha1()
     sha1_hasher.update(file_content)
     digest = sha1_hasher.hexdigest()
@@ -49,25 +54,25 @@ def get_sha1(file_content):
 
 def zip_encrypt_content(content, zip_encrypted_filepath):
     '''
-
-    :param existing_filepath:
-    :param zip_encrypted_filepath:
-    :return:
+    Given the content of a file to write, zip encrypts it with the standard password 'infected'
+    :param content: byte array with content to write to file
+    :param zip_encrypted_filepath: absolute file path where to write encrypted file
+    :return: None
     '''
     with pyzipper.AESZipFile(zip_encrypted_filepath, 'w', compression=pyzipper.ZIP_LZMA, encryption=pyzipper.WZ_AES) as zf:
         zf.pwd = b'infected'
         zf.writestr(os.path.basename(zip_encrypted_filepath).split('.')[0], content)
 
-def zip_decrypt_file(existing_filepath, decrypted_filepath):
+def zip_decrypt_file(existing_filepath):
     '''
-
+    Decrypts encrypted file with the password 'infected'
     :param existing_filepath:
-    :param decrypted_filepath:
-    :return:
+    :return: file_content
     '''
     with pyzipper.AESZipFile(existing_filepath) as zf:
         zf.pwd = b'infected'
-        my_secrets = zf.read(decrypted_filepath)
+        file_content = zf.read(os.path.basename(existing_filepath).split('.')[0])
+    return file_content
 
 def gzip_decompress_file(existing_filepath, decompressed_filepath=None):
     with gzip.open(existing_filepath, 'rb') as f:
@@ -76,15 +81,27 @@ def gzip_decompress_file(existing_filepath, decompressed_filepath=None):
         return file_content
 
 def archive_by_hash(all_files, archive_directory):
+    '''
+    Archives the list of provided files, zip encrypting them with the standard password 'infected'.  Files saved
+    in a directory named as the first three hex characters of their sha1 hash.  File names are the sha1 hash of their
+    content.
+    :param all_files: list of absolute file paths
+    :param archive_directory: base directory to save files to.
+    :return: files successfully archived without generating an exception or error
+    '''
     successfully_archived = []
 
     for file_to_archive in all_files:
-        if file_to_archive.endswith('.gz'):
-            raw_file_content = gzip_decompress_file(file_to_archive, decompressed_filepath=None)
-            digest = get_sha1(raw_file_content)
-            archive_filename = os.path.join(archive_directory, digest[0:3],'{}.ecr.zip'.format(digest))
-            os.makedirs(os.path.join(archive_directory, digest[0:3]), exist_ok=True)
-            zip_encrypt_content(raw_file_content, archive_filename)
+        try:
+            if file_to_archive.endswith('.gz'):
+                raw_file_content = gzip_decompress_file(file_to_archive, decompressed_filepath=None)
+                digest = get_sha1(raw_file_content)
+                archive_filename = os.path.join(archive_directory, digest[0:3],'{}.ecr.zip'.format(digest))
+                os.makedirs(os.path.join(archive_directory, digest[0:3]), exist_ok=True)
+                zip_encrypt_content(raw_file_content, archive_filename)
+                successfully_archived.append(file_to_archive)
+        except Exception as e:
+            print("Failed to archive {}: {}".format(file_to_archive, e))
 
     return successfully_archived
 
